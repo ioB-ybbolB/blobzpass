@@ -15,3 +15,14 @@ test('CSS URLs and @import become same-origin service worker routes', () => {
   assert.match(css,new RegExp('/__bp__/o/'+origin+'/css/more\\.css'));
   assert.match(css,new RegExp('/__bp__/o/'+origin+'/asset\\.png\\?x=1&y=2'));
 });
+
+test('GitHub Pages v2 rewriting prefixes assets, query strings, and CSS without double encoding',()=>{
+ const prefix='/blobzpass/__bp__/';
+ const q='https://example.org/s?q=https%3A%2F%2Fcdn.example%2Fx%3Fa%3D1%26b%3D2&x=a%2Bb';
+ assert.equal(routeUrl(q,'https://example.org/',prefix),prefix+'o/'+origin+'/s?q=https%3A%2F%2Fcdn.example%2Fx%3Fa%3D1%26b%3D2&x=a%2Bb');
+ const rewrite=(raw,base)=>routeUrl(raw,base,prefix);
+ const css=rewriteCssMode('body{background:url(/image.png)} @import "more.css";', 'https://example.org/css/style.css',rewrite);
+ assert.match(css,/\/blobzpass\/__bp__\/o\//);
+ assert.match(css,/\/image\.png/);
+ assert.match(css,/\/css\/more\.css/);
+});

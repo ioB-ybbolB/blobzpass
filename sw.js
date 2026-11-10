@@ -1,12 +1,14 @@
 /* blobzpass v2 – Service Worker on a SINGLE (viewer + proxied content) origin.
  * All proxied upstream HTTP requests are GETs to Noteboard, never direct
  * fetches from a website and never direct calls to the blobzpass Worker.
- * Deploy at /sw.js with scope / on the shared HTTPS origin.
+ * Deploy at /blobzpass/sw.js with scope /blobzpass/ on GitHub Pages.
  */
 'use strict';
 const NOTEBOARD = 'https://www.noteboardapp.com/showCodeFile.php?file=';
 const WORKER_ORIGIN = 'https://blobzpass.iob-ybbolb.workers.dev';
-const PROXY_PREFIX = '/__bp__/o/';
+const APP_BASE = new URL(self.registration.scope).pathname; // e.g. /blobzpass/
+const PROXY_BASE = APP_BASE + '__bp__/';
+const PROXY_PREFIX = PROXY_BASE + 'o/';
 const OUTER_URL_BUDGET = 1900;
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_STAGE_PARTS = 256;
@@ -190,7 +192,7 @@ async function proxyRequest(event) {
     if(!base) {
       // Never fall through to an unproxied third-party request.
       if(url.origin!==self.location.origin) return new Response('Unattributed third-party request denied',{status:502});
-      return fetch(req); // static bootstrap assets on our content-only host
+      return fetch(req); // static viewer/bootstrap assets on the same GitHub Pages site
     }
     // Root-relative requests from a controlled virtual page are mapped to its
     // original origin. Absolute remote URLs are fetched using the tunnel.
@@ -205,7 +207,7 @@ async function proxyRequest(event) {
   try {
     const method=req.method.toUpperCase();
     if(!METHODS.has(method)) return errorDocument('Unsupported method '+method,405);
-    const params=new URLSearchParams({url:toB64(te.encode(destination)),v2:'1'});
+    const params=new URLSearchParams({url:toB64(te.encode(destination)),v2:'1',v2prefix:PROXY_BASE});
     if(method!=='GET') {
       params.set('method',method);
       params.set('nonce',crypto.randomUUID());
@@ -242,7 +244,7 @@ self.addEventListener('install',e=>{e.waitUntil(self.skipWaiting());});
 self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});
 self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
-  if(url.origin===self.location.origin && url.pathname==='/__bp__/ws') {
+  if(url.origin===self.location.origin && url.pathname===PROXY_BASE+'ws') {
     event.respondWith((async()=>{
       try {
         const {metadata,bytes}=await tunnel(new URLSearchParams(url.search));
@@ -251,8 +253,8 @@ self.addEventListener('fetch',event=>{
     })());
     return;
   }
-  if(url.origin===self.location.origin && ['/__bp__/bridge.js','/__bp__/config.js'].includes(url.pathname)) {
-    event.respondWith(fetch(new URL(url.pathname.replace('/__bp__/','/'),self.location.origin)));
+  if(url.origin===self.location.origin && [PROXY_BASE+'bridge.js',PROXY_BASE+'config.js'].includes(url.pathname)) {
+    event.respondWith(fetch(new URL(APP_BASE+url.pathname.slice(PROXY_BASE.length),self.location.origin)));
     return;
   }
   if(event.request.destination==='image' && event.request.method==='GET') {

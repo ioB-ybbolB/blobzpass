@@ -44,7 +44,9 @@ button,input{font:inherit}button{color:inherit;cursor:pointer}button:disabled{op
   'use strict';
   const HOME='https://blobby-boi2.github.io/BlobbypassPlus/';
   const ORIGIN=location.origin;
-  const FRAME_BOOTSTRAP='/content.html';
+  const APP_BASE=new URL('./',location.href).pathname; // /blobzpass/ on GitHub Pages
+  const FRAME_BOOTSTRAP=APP_BASE+'content.html';
+  const PROXY_PREFIX=APP_BASE+'__bp__/o/';
   const tabs=[];
   const tabsBar=document.getElementById('tabs');
   const panel=document.getElementById('panel');
@@ -136,7 +138,7 @@ button,input{font:inherit}button{color:inherit;cursor:pointer}button:disabled{op
     tab.title=String(event.data.title||new URL(next).hostname).slice(0,160);
     const icon=event.data.icon;
     // Preserve the proxy route. Never fetch the remote favicon directly.
-    tab.icon=typeof icon==='string' && icon.startsWith('/__bp__/o/')?ORIGIN+icon:'';
+    tab.icon=typeof icon==='string' && icon.startsWith(PROXY_PREFIX)?ORIGIN+icon:'';
     if(next!==HOME)tab.blankHome=false;
     update();
   });

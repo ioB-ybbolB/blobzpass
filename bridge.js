@@ -1,13 +1,14 @@
-/* Loaded into proxied documents by Worker HTMLRewriter. Runs only on the
- * untrusted content origin. It never runs inside the browser toolbar. */
+/* Injected into proxied documents by Worker HTMLRewriter. In single-domain
+ * mode it shares the browser toolbar's origin: this is NOT a security boundary. */
 (()=>{
 'use strict';
-const PREFIX='/__bp__/o/';
-const cfg = '/__bp__/config.js'; // configuration is static and must stay on content host
+const PROXY_BASE=new URL('./',document.currentScript?.src||location.origin+'/blobzpass/__bp__/bridge.js').pathname;
+const PREFIX=PROXY_BASE+'o/';
+const cfg=PROXY_BASE+'config.js'; // static config resolved within repo scope
 function b64url(s){const b=new TextEncoder().encode(s);let out='';for(let i=0;i<b.length;i+=12000)out+=btoa(String.fromCharCode(...b.subarray(i,i+12000)));return out.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
 function fromB64(s){return new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-s.length%4)%4)),c=>c.charCodeAt(0)));}
 function originalUrl(){try{const parts=location.pathname.slice(PREFIX.length);if(!location.pathname.startsWith(PREFIX))return null;const cut=parts.indexOf('/');if(cut<0)return null;return fromB64(parts.slice(0,cut))+parts.slice(cut)+location.search+location.hash;}catch{return null;}}
-function proxyUrl(raw,base=originalUrl()){try{const u=new URL(raw,base||location.href);if(!/^https?:$/.test(u.protocol))return raw;return PREFIX+b64url(u.origin)+u.pathname+u.search+u.hash;}catch{return raw;}}
+function proxyUrl(raw,base=originalUrl()){try{if(typeof raw==='string'&&raw.startsWith(PREFIX))return raw;const u=new URL(raw,base||location.href);if(!/^https?:$/.test(u.protocol))return raw;return PREFIX+b64url(u.origin)+u.pathname+u.search+u.hash;}catch{return raw;}}
 function favicon(){const icon=document.querySelector('link[rel~="icon"]');if(icon){const v=icon.getAttribute('href');if(v){try {return proxyUrl(v,originalUrl());}catch{}}}try{return proxyUrl(new URL('/favicon.ico',originalUrl()).href);}catch{return '';}}
 function emit(){const url=originalUrl();if(!url)return;window.parent?.postMessage({type:'blobzpass:state',url,title:document.title||new URL(url).hostname,icon:favicon()},'*');}
 function init(){emit();const t=document.querySelector('title');if(t){new MutationObserver(emit).observe(t,{subtree:true,childList:true,characterData:true});}
@@ -19,17 +20,33 @@ window.addEventListener('pageshow',emit);window.addEventListener('popstate',emit
 for(const method of ['pushState','replaceState']){const prev=history[method];history[method]=function(...args){const r=prev.apply(this,args);queueMicrotask(emit);return r;};}
 // HTML from the Worker already rewrites static src/href attributes. Handle a
 // common dynamic iframe case before the browser makes a direct navigation.
-function rewriteFrame(el){if(el?.tagName!=='IFRAME')return;const raw=el.getAttribute('src');if(!raw||/^(?:data:|about:|javascript:|blob:|#)/i.test(raw)||raw.startsWith(PREFIX))return;
-  const newValue=proxyUrl(raw,originalUrl());if(newValue!==raw)el.setAttribute('src',newValue);
+// Dynamic links and forms must also be rewritten: a native navigation to a
+// domain-root /path would leave a project-scoped Service Worker at /blobzpass/.
+const navigableAttributes={IFRAME:'src',A:'href',AREA:'href',FORM:'action'};
+const navigableSelector='iframe[src],a[href],area[href],form[action]';
+function rewriteDestination(raw){
+  raw=String(raw);
+  if(!raw || /^(?:#|data:|about:|javascript:|blob:|mailto:|tel:)/i.test(raw) || raw.startsWith(PREFIX))return raw;
+  return proxyUrl(raw,originalUrl());
+}
+function rewriteNavigable(el){
+  const attr=navigableAttributes[el?.tagName];if(!attr)return;
+  const raw=el.getAttribute(attr);if(raw===null)return;
+  const next=rewriteDestination(raw);if(next!==raw)el.setAttribute(attr,next);
 }
 const nativeSet=Element.prototype.setAttribute;
-Element.prototype.setAttribute=function(name,value){if(this.tagName==='IFRAME'&&String(name).toLowerCase()==='src'&&value) value=proxyUrl(value,originalUrl());return nativeSet.call(this,name,value);};
-const frameDesc=Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype,'src');
-if(frameDesc?.set && frameDesc?.get){Object.defineProperty(HTMLIFrameElement.prototype,'src',{configurable:true,enumerable:frameDesc.enumerable,get:frameDesc.get,set(value){frameDesc.set.call(this,proxyUrl(value,originalUrl()));}});}
-function scan(node){if(node.nodeType!==1&&node.nodeType!==11)return;if(node.nodeType===1)rewriteFrame(node);node.querySelectorAll?.('iframe[src]').forEach(rewriteFrame);}
+Element.prototype.setAttribute=function(name,value){
+  if(String(name).toLowerCase()===navigableAttributes[this.tagName])value=rewriteDestination(value);
+  return nativeSet.call(this,name,value);
+};
+for(const [type,attribute,property] of [[HTMLIFrameElement,'src','src'],[HTMLAnchorElement,'href','href'],[HTMLFormElement,'action','action']]){
+  const descriptor=Object.getOwnPropertyDescriptor(type.prototype,property);
+  if(descriptor?.set && descriptor?.get)Object.defineProperty(type.prototype,property,{configurable:true,enumerable:descriptor.enumerable,get:descriptor.get,set(value){descriptor.set.call(this,rewriteDestination(value));}});
+}
+function scan(node){if(node.nodeType!==1&&node.nodeType!==11)return;if(node.nodeType===1)rewriteNavigable(node);node.querySelectorAll?.(navigableSelector).forEach(rewriteNavigable);}
 for(const method of ['appendChild','insertBefore','replaceChild']){const native=Node.prototype[method];Node.prototype[method]=function(node,...args){scan(node);return native.call(this,node,...args);};}
-const mo=new MutationObserver(list=>{for(const entry of list){if(entry.type==='childList')for(const node of entry.addedNodes)scan(node);else if(entry.type==='attributes')rewriteFrame(entry.target);}});
-mo.observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['src']});
+const mo=new MutationObserver(list=>{for(const entry of list){if(entry.type==='childList')for(const node of entry.addedNodes)scan(node);else if(entry.type==='attributes')rewriteNavigable(entry.target);}});
+mo.observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['src','href','action']});
 // Commands are only accepted from the configured browser-toolbar origin.
 // Loading config.js dynamically must be independent of the proxied site.
 // The fetch event cannot upgrade a WebSocket over a GET-only PHP gateway.
@@ -50,7 +67,7 @@ class ProxyWebSocket extends EventTarget {
   }
   async _call(action,extra={}){
     const params=new URLSearchParams({ws_action:action,ws_id:this._id,nonce:crypto.randomUUID(),...extra});
-    const result=await fetch('/__bp__/ws?'+params,{cache:'no-store'});
+    const result=await fetch(PROXY_BASE+'ws?'+params,{cache:'no-store'});
     const payload=await result.json();
     if(!result.ok||!payload.ok)throw Error(payload.error||'WebSocket GET tunnel failed');
     return payload;

@@ -6,7 +6,8 @@ function b64url(data){const bytes=new TextEncoder().encode(data);let binary='';f
   const raw=new URLSearchParams(location.search).get('url');
   const target=new URL(raw);
   if(!['https:','http:'].includes(target.protocol))throw Error('Only HTTP(S) websites are supported');
-  const reg=await navigator.serviceWorker.register('/sw.js',{scope:'/'});
+  const appBase=new URL('./',location.href).pathname; // /blobzpass/ on GitHub Pages
+  const reg=await navigator.serviceWorker.register(appBase+'sw.js',{scope:appBase});
   await navigator.serviceWorker.ready;
   if(!navigator.serviceWorker.controller){
     await new Promise((resolve,reject)=>{
@@ -14,6 +15,6 @@ function b64url(data){const bytes=new TextEncoder().encode(data);let binary='';f
       navigator.serviceWorker.addEventListener('controllerchange',()=>{clearTimeout(timeout);resolve();},{once:true});
     });
   }
-  location.replace('/__bp__/o/'+b64url(target.origin)+target.pathname+target.search+target.hash);
+  location.replace(appBase+'__bp__/o/'+b64url(target.origin)+target.pathname+target.search+target.hash);
 }catch(error){document.getElementById('status').textContent='Unable to start: '+error.message;console.error(error);}})();
 </script></body></html>

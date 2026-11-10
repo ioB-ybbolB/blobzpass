@@ -15,7 +15,7 @@ PORT=18931
 BASE=f'http://127.0.0.1:{PORT}'
 HOME='https://blobby-boi2.github.io/BlobbypassPlus/'
 ORIGIN='https://test.example'
-ROUTE='/__bp__/o/'+base64.urlsafe_b64encode(ORIGIN.encode()).decode().rstrip('=')
+ROUTE='/blobzpass/__bp__/o/'+base64.urlsafe_b64encode(ORIGIN.encode()).decode().rstrip('=')
 seen=[]
 
 def envelope(body,target,mime='text/html',status=200):
@@ -27,7 +27,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
     def do_GET(self):
         path=urlparse(self.path)
-        if path.path=='/mocknoteboard':
+        if path.path=='/blobzpass/mocknoteboard':
             worker=parse_qs(path.query).get('file',[''])[0]
             search=parse_qs(urlparse(worker).query)
             raw=search.get('url',[''])[0]
@@ -43,19 +43,19 @@ class Handler(BaseHTTPRequestHandler):
             elif '/api?' in target:
                 body='API='+target.split('?',1)[1];mime='text/plain'
             elif '/next?' in target:
-                body='<html><head><script src="/__bp__/bridge.js"></script><title>Next Page</title></head><body><h1 id="next">NEXT</h1></body></html>'
+                body='<html><head><script src="/blobzpass/__bp__/bridge.js"></script><title>Next Page</title></head><body><h1 id="next">NEXT</h1></body></html>'
                 mime='text/html'
             else:
-                body=f'''<!doctype html><html><head><script src="/__bp__/bridge.js"></script><title>Native Test</title></head><body>
+                body=f'''<!doctype html><html><head><script src="/blobzpass/__bp__/bridge.js"></script><title>Native Test</title></head><body>
                 <h1 id="heading">Native Browser</h1><script src="{ROUTE}/native.js"></script>
                 <a id="next-link" href="{ROUTE}/next?q=one%26two">Next page</a>
                 <script>window.addEventListener('load',async()=>{{const r=await fetch('/api?url=a%26b%3Dc&plus=x%2By');document.body.dataset.api=await r.text()}});</script>
                 </body></html>'''
                 mime='text/html'
             self.respond(envelope(body,target,mime));return
-        fp=ROOT/(path.path.lstrip('/') or 'viewer.html')
-        if path.path=='/sw.js':
-            source=(ROOT/'sw.js').read_text().replace('https://www.noteboardapp.com/showCodeFile.php?file=',BASE+'/mocknoteboard?file=')
+        fp=ROOT/(path.path.removeprefix('/blobzpass/').lstrip('/') or 'viewer.html')
+        if path.path=='/blobzpass/sw.js':
+            source=(ROOT/'sw.js').read_text().replace('https://www.noteboardapp.com/showCodeFile.php?file=',BASE+'/blobzpass/mocknoteboard?file=')
             self.respond(source.encode(),'text/javascript');return
         if fp.is_file() and fp.resolve().is_relative_to(ROOT.resolve()):
             mime='text/javascript' if fp.suffix=='.js' else 'text/html' if fp.suffix=='.html' else 'text/plain'
@@ -74,7 +74,7 @@ if __name__=='__main__':
             page=context.new_page()
             errors=[]
             page.on('pageerror',lambda error: errors.append(str(error)))
-            page.goto(BASE+'/viewer.html',wait_until='domcontentloaded',timeout=10000)
+            page.goto(BASE+'/blobzpass/viewer.html',wait_until='domcontentloaded',timeout=10000)
             assert page.locator('#address').input_value()==''
             assert page.locator('#new-tab').count()==1
             frame=page.frame_locator('iframe').first

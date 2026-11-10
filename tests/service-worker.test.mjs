@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import {webcrypto} from 'node:crypto';
 const source=fs.readFileSync(new URL('../sw.js',import.meta.url),'utf8');
 const SITE='https://test.example';
-const proxy='https://content.example/__bp__/o/'+Buffer.from(SITE).toString('base64url');
+const proxy='https://content.example/blobzpass/__bp__/o/'+Buffer.from(SITE).toString('base64url');
 const encode=(value)=>Buffer.from(value).toString('base64');
 const env=(body,mime='text/html',url=SITE+'/',status=200)=>{
  const meta=encode(JSON.stringify({mime,status,url,headers:{'content-type':mime}}));
@@ -13,7 +13,7 @@ const env=(body,mime='text/html',url=SITE+'/',status=200)=>{
 };
 function harness({clientUrl=proxy+'/page',payload=()=>({body:'OK',mime:'text/plain'})}={}) {
  let handler;const outbound=[];
- const ctx={self:{location:{origin:'https://content.example'},addEventListener(name,fn){if(name==='fetch')handler=fn;},clients:{async get(){return {url:clientUrl};}},skipWaiting:async()=>{},claim:async()=>{}},
+ const ctx={self:{location:{origin:'https://content.example'},registration:{scope:'https://content.example/blobzpass/'},addEventListener(name,fn){if(name==='fetch')handler=fn;},clients:{async get(){return {url:clientUrl};}},skipWaiting:async()=>{},claim:async()=>{}},
   URL,URLSearchParams,Headers,Request,Response,TextEncoder,TextDecoder,Uint8Array,ReadableStream,
   atob,btoa,crypto:webcrypto,console,setTimeout,clearTimeout,
   fetch:async value=>{const outer=String(value);outbound.push(outer);
@@ -21,7 +21,7 @@ function harness({clientUrl=proxy+'/page',payload=()=>({body:'OK',mime:'text/pla
       const worker=new URL(new URL(outer).searchParams.get('file'));
       const params=worker.searchParams;
       let entry;
-      if(params.has('tunnel'))entry={body:'{"ok":true}',mime:'application/json',url:'blobzpass:tunnel'};
+      if(params.has('tunnel')||params.has('ws_action'))entry={body:'{"ok":true}',mime:'application/json',url:'blobzpass:tunnel'};
       else if(params.has('batch')) {
         const urls=JSON.parse(Buffer.from(params.get('batch'),'base64').toString()).items;
         const image=Buffer.from('PNG');
@@ -48,7 +48,7 @@ function harness({clientUrl=proxy+'/page',payload=()=>({body:'OK',mime:'text/pla
  }};
 }
 test('Service Worker fetches a proxied document via Noteboard GET, never original URL', async()=>{
- const h=harness({payload:(url,params)=>{assert.equal(params.get('v2'),'1');return {body:'<h1>native</h1>',mime:'text/html',url};}});
+ const h=harness({payload:(url,params)=>{assert.equal(params.get('v2'),'1');assert.equal(params.get('v2prefix'),'/blobzpass/__bp__/');return {body:'<h1>native</h1>',mime:'text/html',url};}});
  const r=await h.dispatch(proxy+'/page?x=a%26b');
  assert.equal(r.status,200);
  assert.equal(r.headers.get('content-type'),'text/html');
@@ -94,4 +94,14 @@ test('two images share a single Worker image batch over Noteboard',async()=>{
  assert.equal(h.outbound.length,1);
  const worker=new URL(new URL(h.outbound[0]).searchParams.get('file'));
  assert.equal(JSON.parse(Buffer.from(worker.searchParams.get('batch'),'base64').toString()).items.length,2);
+});
+
+
+test('GitHub Pages scoped requests route the WebSocket tunnel and internal assets under /blobzpass/', async()=>{
+  const h=harness({payload:(url)=>({body:'OK',mime:'text/plain',url})});
+  const ws=await h.dispatch('https://content.example/blobzpass/__bp__/ws?ws_action=poll&ws_id=abc');
+  assert.equal(ws.status,200);
+  assert.equal(h.outbound.length,1);
+  const worker=new URL(new URL(h.outbound[0]).searchParams.get('file'));
+  assert.equal(worker.searchParams.get('ws_action'),'poll');
 });

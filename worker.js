@@ -102,11 +102,11 @@ function rewriteUrl(raw, base) {
 function base64Url(value) {
   return utf8ToBase64(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
-function routeUrl(raw, base) {
+function routeUrl(raw, base, proxyBase = '/__bp__/') {
   const dest = targetUrl(raw, base);
   if (!dest) return raw;
   const parsed = new URL(dest);
-  return '/__bp__/o/' + base64Url(parsed.origin) + parsed.pathname + parsed.search + parsed.hash;
+  return proxyBase + 'o/' + base64Url(parsed.origin) + parsed.pathname + parsed.search + parsed.hash;
 }
 function rewriteSrcsetMode(value, base, fn) {
   if (/data:/i.test(value)) return value;
@@ -150,9 +150,9 @@ function stripMetaRefresh(content, base, fn = rewriteUrl) {
     return start + (quote || '"') + dest + (quote || '"');
   });
 }
-function rewriteHtml(htmlOrResponse, requestBase, mode = 'legacy') {
+function rewriteHtml(htmlOrResponse, requestBase, mode = 'legacy', proxyBase = '/__bp__/') {
   const v2 = mode === 'v2';
-  const rewrite = v2 ? routeUrl : rewriteUrl;
+  const rewrite = v2 ? (raw, base) => routeUrl(raw, base, proxyBase) : rewriteUrl;
   // Streaming HTMLRewriter avoids buffering HTML twice before encoding it.
   // A <base> element can change the base for subsequent tags in the stream.
   let base = requestBase;
@@ -176,7 +176,7 @@ function rewriteHtml(htmlOrResponse, requestBase, mode = 'legacy') {
               if (resolved.protocol === 'https:' || resolved.protocol === 'http:') base = resolved.href;
             } catch { /* keep the document's base */ }
           }
-          const rewrittenBase = v2 ? routeUrl(base, requestBase) : base;
+          const rewrittenBase = v2 ? rewrite(base, requestBase) : base;
           if (original.get('href') !== rewrittenBase) changes.set('href', rewrittenBase);
         } else {
           for (const attr of URL_ATTRS) {
@@ -225,7 +225,7 @@ function rewriteHtml(htmlOrResponse, requestBase, mode = 'legacy') {
     })
     .on('head', {
       element(element) {
-        if (v2) element.prepend('<script src="/__bp__/bridge.js"></script>', {html:true});
+        if (v2) element.prepend('<script src="' + escapeAttr(proxyBase + 'bridge.js') + '"></script>', {html:true});
       }
     });
   return rewriter.transform(typeof htmlOrResponse === 'string'
@@ -814,6 +814,11 @@ async function proxyRequestFromParams(params, env, requestMethod='GET') {
   if (!params.has('url')) return errorResponse('Expected /?url=<base64-of-https-url>',400);
   const viewerMode=params.get('viewer')==='1';
   const v2Mode=params.get('v2')==='1';
+  const v2Prefix=params.get('v2prefix')||'/__bp__/';
+  if(v2Mode && (v2Prefix.length>160 || !/^\/(?:[a-zA-Z0-9_-]+\/)*__bp__\/$/.test(v2Prefix))) {
+    return errorResponse('Invalid v2 proxy path prefix',400);
+  }
+  const v2Route=(raw,base)=>routeUrl(raw,base,v2Prefix);
   let target,replay;
   try {
     target=base64ToUtf8(params.get('url'));
@@ -836,12 +841,12 @@ async function proxyRequestFromParams(params, env, requestMethod='GET') {
     }
     let body=response.body;
     if (v2Mode && (mime==='text/html'||mime==='application/xhtml+xml')) {
-      body=rewriteHtml(new Response(body,{headers:{'Content-Type':'text/html; charset=utf-8'}}),finalUrl,'v2').body;
+      body=rewriteHtml(new Response(body,{headers:{'Content-Type':'text/html; charset=utf-8'}}),finalUrl,'v2',v2Prefix).body;
       mime='text/html';
     } else if (v2Mode && mime==='text/css') {
       const rawCss=await new Response(body).text();
       if (new TextEncoder().encode(rawCss).byteLength>MAX_RESPONSE_BYTES) return errorResponse('Upstream body exceeds 10 MiB',413);
-      body=new Response(rewriteCssMode(rawCss,finalUrl,routeUrl)).body;
+      body=new Response(rewriteCssMode(rawCss,finalUrl,v2Route)).body;
     } else if (!viewerMode && (mime==='text/html'||mime==='application/xhtml+xml')) {
       body=rewriteHtml(new Response(body,{headers:{'Content-Type':'text/html; charset=utf-8'}}),finalUrl).body;
       mime='text/html';
