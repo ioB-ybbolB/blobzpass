@@ -1,0 +1,14 @@
+{
+  "name": "blobzpass-v2.1-same-domain",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker + same-domain Service Worker proxy using Noteboard GET responses",
+  "scripts": {
+    "deploy": "wrangler deploy --config wrangler.toml",
+    "deploy:legacy-kv": "wrangler deploy --config wrangler.legacy-kv.toml",
+    "test": "node --test tests/service-worker.test.mjs tests/worker-v2.test.mjs tests/same-domain.test.mjs",
+    "test:legacy-worker": "node --test --test-skip-pattern='Standalone|standalone|Virtual runtime' tests/blobzpass.test.mjs tests/batch-images.test.mjs tests/chunked-tunnel.test.mjs tests/websocket.test.mjs"
+  },
+  "devDependencies": {"wrangler": "^4.0.0"}
+}

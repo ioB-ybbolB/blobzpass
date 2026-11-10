@@ -1,0 +1,24 @@
+name = "blobzpass"
+main = "worker.js"
+compatibility_date = "2026-11-03"
+workers_dev = true
+
+# Optional allowlist; uncomment to limit use to domains you control.
+# [vars]
+# ALLOWED_HOSTS = "example.com,example.org"
+
+# Existing provisioned Durable Object namespace: keep the class in exports.
+# MUST match the storage backend already provisioned on your Cloudflare account.
+# Use this config only if the existing CookieSession namespace uses legacy KV storage.
+[exports.CookieSession]
+type = "durable-object"
+storage = "legacy-kv"
+
+# WebSocket session bridge: new SQLite-backed DO; existing CookieSession is unchanged.
+[exports.WebSocketBridge]
+type = "durable-object"
+storage = "sqlite"
+
+[[durable_objects.bindings]]
+name = "WS_BRIDGE"
+class_name = "WebSocketBridge"
